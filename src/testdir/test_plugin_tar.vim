@@ -148,56 +148,61 @@ def g:Test_tar_path_traversal_with_nowrapscan()
   bw!
 enddef
 
-def g:Test_tar_lz4_extract()
-  CheckExecutable lz4
-
-  delete('X.txt')
-  delete('Xarchive.tar')
-  delete('Xarchive.tar.lz4')
-  call writefile(['hello'], 'X.txt')
-  call system('tar -cf Xarchive.tar X.txt')
+def CreateTzst(archivename: string, content: string, outputdir: string)
+  var tempdir = tempname()
+  mkdir(tempdir, 'R')
+  call writefile([content], tempdir .. '/X.txt')
+  assert_true(filereadable(tempdir .. '/X.txt'))
+  call system('tar --zstd -C ' .. tempdir .. ' -cf ' .. outputdir .. '/' .. archivename .. ' X.txt')
   assert_equal(0, v:shell_error)
-
-  call system('lz4 -z Xarchive.tar Xarchive.tar.lz4')
-  assert_equal(0, v:shell_error)
-
-  delete('X.txt')
-  delete('Xarchive.tar')
-  defer delete('Xarchive.tar.lz4')
-
-  e Xarchive.tar.lz4
-  assert_match('X.txt', getline(5))
-  :5
-  normal x
-  assert_true(filereadable('X.txt'))
-  assert_equal(['hello'], readfile('X.txt'))
-  delete('X.txt')
-  bw!
 enddef
 
-def g:Test_tlz4_extract()
-  CheckExecutable lz4
-
-  delete('X.txt')
-  delete('Xarchive.tar')
-  delete('Xarchive.tlz4')
-  call writefile(['goodbye'], 'X.txt')
-  call system('tar -cf Xarchive.tar X.txt')
+def CreateTlz4(archivename: string, content: string, outputdir: string)
+  var tempdir = tempname()
+  mkdir(tempdir, 'R')
+  call writefile([content], tempdir .. '/X.txt')
+  assert_true(filereadable(tempdir .. '/X.txt'))
+  call system('tar -C ' .. tempdir .. ' -cf ' .. tempdir .. '/Xarchive.tar X.txt')
   assert_equal(0, v:shell_error)
-
-  call system('lz4 -z Xarchive.tar Xarchive.tlz4')
+  assert_true(filereadable(tempdir .. '/Xarchive.tar'))
+  call system('lz4 -z ' .. tempdir .. '/Xarchive.tar ' .. outputdir .. '/' .. archivename)
   assert_equal(0, v:shell_error)
+enddef
 
-  delete('X.txt')
-  delete('Xarchive.tar')
-  defer delete('Xarchive.tlz4')
+# XXX: Test other extraction types.
+def g:Test_extraction()
+  var control = [
+    {create: CreateTzst,
+     archive: 'Xarchive.tzst'},
+    {create: CreateTzst,
+     archive: 'Xarchive.tar.zst'},
+  ]
 
-  e Xarchive.tlz4
-  assert_match('X.txt', getline(5))
-  :5
-  normal x
-  assert_true(filereadable('X.txt'))
-  assert_equal(['goodbye'], readfile('X.txt'))
-  delete('X.txt')
-  bw!
+  if executable('lz4') == 1
+    control->add({
+      create: CreateTlz4,
+      archive: 'Xarchive.tar.lz4'
+    })
+    control->add({
+      create: CreateTlz4,
+      archive: 'Xarchive.tlz4'
+    })
+  endif
+
+  for c in control
+    var dir = tempname()
+    mkdir(dir, 'R')
+    call(c.create, [c.archive, 'hello', dir])
+
+    delete('X.txt')
+    execute 'edit ' .. dir .. '/' .. c.archive
+    assert_match('X.txt', getline(5))
+    :5
+    normal x
+    assert_true(filereadable('X.txt'))
+    assert_equal(['hello'], readfile('X.txt'))
+    delete('X.txt')
+    delete(dir .. '/' .. c.archive)
+    bw!
+  endfor
 enddef
